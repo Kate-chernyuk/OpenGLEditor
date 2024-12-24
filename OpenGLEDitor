@@ -1,0 +1,439 @@
+import pygame
+from pygame.locals import *
+from OpenGL.GL import *
+from OpenGL.GLU import *
+import tkinter as tk
+from tkinter import colorchooser, simpledialog, filedialog
+import numpy as np
+import freetype
+
+background_color = (1, 1, 1)
+object_color = (0, 0, 0)
+line_width = 2
+shapes = []  
+buttons = []
+scale = 1.0
+
+vertices = [
+    [0.0, 1.0, 0.0],  
+    [-1.0, -1.0, 1.0], 
+    [1.0, -1.0, 1.0], 
+    [0.0, -1.0, -1.0]
+]
+
+modes = {
+    'POINTS': GL_POINTS,
+    'WIRE': GL_LINE,
+    'SOLID': GL_FILL
+}
+current_mode = 'SOLID'
+
+angle_x = 0
+angle_y = 0
+is_rotating = False
+last_mouse_pos = (0, 0)
+
+draw_tetrahedron_flag = False
+texture_on_tetrahedron_flag = False
+tetrahedron_texture = None
+tetradedron_lighting = False
+
+class Button:
+    def __init__(self, x, y, width, height, text, action):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.text = text
+        self.action = action
+        self.font = pygame.font.SysFont('Arial', 24)
+        self.texture_id = None
+        self.text_width = 0
+        self.text_height = 0
+
+    def create_texture(self):
+        text_surface = self.font.render(self.text, True, (255, 255, 255))
+        text_data = pygame.image.tostring(text_surface, "ARGB", True)
+        self.text_width, self.text_height = text_surface.get_size()
+
+        self.texture_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.text_width, self.text_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, text_data)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+    def draw(self, display_height):
+        glColor3f(0.8, 0.8, 0.8)
+
+        if self.texture_id is None:
+            self.create_texture()
+
+        glEnable(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+
+        glBegin(GL_QUADS)
+        glTexCoord2f(0, 1)
+        glVertex2f(self.x + (self.width - self.text_width) / 2, display_height - (self.y + (self.height - self.text_height) / 2))
+        glTexCoord2f(1, 1)
+        glVertex2f(self.x + (self.width + self.text_width) / 2, display_height - (self.y + (self.height - self.text_height) / 2))
+        glTexCoord2f(1, 0)
+        glVertex2f(self.x + (self.width + self.text_width) / 2, display_height - (self.y + (self.height + self.text_height) / 2))
+        glTexCoord2f(0, 0)
+        glVertex2f(self.x + (self.width - self.text_width) / 2, display_height - (self.y + (self.height + self.text_height) / 2))
+        glEnd()
+
+        glDisable(GL_TEXTURE_2D)
+
+    def is_clicked(self, pos):
+        x, y = pos
+        return self.x <= x <= self.x + self.width and self.y <= y <= self.y + self.height
+
+    def is_clicked(self, pos):
+        x, y = pos
+        return self.x <= x <= self.x + self.width and self.y <= y <= self.y + self.height
+
+def draw_tetrahedron():
+    if current_mode == 'POINTS':
+        glBegin(GL_POINTS) 
+        glColor3f(1, 0, 0) 
+        for vertex in vertices:
+            glVertex3fv(vertex)
+        num_points = 35
+        for i in range(len(vertices)):
+            for j in range(i + 1, len(vertices)):
+                for k in range(num_points + 1):
+                    t = k / num_points
+                    mid_point = [(1 - t) * vertices[i][0] + t * vertices[j][0], (1 - t) * vertices[i][1] + t * vertices[j][1], (1 - t) * vertices[i][2] + t * vertices[j][2]]
+                glVertex3fv(mid_point)
+        for i in range(len(vertices)):
+            for j in range(len(vertices)):
+                if i != j:
+                    for k in range(num_points + 1):
+                        t = k / num_points
+                        for l in range(len(vertices)):
+                            if l != i and l != j:
+                                point_on_face = [(1 - t) * vertices[i][0] + t * vertices[j][0], (1 - t) * vertices[i][1] + t * vertices[j][1], (1 - t) * vertices[i][2] + t * vertices[j][2]]
+                        glVertex3fv(point_on_face)
+        glEnd()
+        
+    elif current_mode == 'WIRE':
+        glBegin(GL_LINES)  
+        glColor3f(0, 0, 0)  
+        edges = [
+            (0, 1), (0, 2), (0, 3),
+            (1, 2), (1, 3), (2, 3)
+        ]
+        for edge in edges:
+            for vertex in edge:
+                glVertex3fv(vertices[vertex])
+        glEnd()
+        
+    elif current_mode == 'SOLID':
+        if texture_on_tetrahedron_flag:
+            glBindTexture(GL_TEXTURE_2D, tetrahedron_texture)
+            glEnable(GL_TEXTURE_2D)  
+        else:
+            glDisable(GL_TEXTURE_2D)
+        glBegin(GL_TRIANGLES)
+        
+      #  glColor3f(1, 0, 0)
+        glNormal3f(0.0, 0.0, 1.0)
+        glVertex3fv(vertices[0])
+        glVertex3fv(vertices[1])
+        glVertex3fv(vertices[2])
+
+     #   glColor3f(0, 1, 0)
+        glNormal3f(0.0, 0.0, 1.0)
+        glVertex3fv(vertices[0])
+        glVertex3fv(vertices[1])
+        glVertex3fv(vertices[3])
+
+      #  glColor3f(0, 0, 1)
+        glNormal3f(0.0, 0.0, 1.0)
+        glVertex3fv(vertices[0])
+        glVertex3fv(vertices[2])
+        glVertex3fv(vertices[3])
+
+     #   glColor3f(1, 1, 0)
+        glNormal3f(0.0, 0.0, 1.0)
+        glVertex3fv(vertices[1])
+        glVertex3fv(vertices[2])
+        glVertex3fv(vertices[3])
+        
+        glEnd()
+
+        if texture_on_tetrahedron_flag:
+            glDisable(GL_TEXTURE_2D)
+
+def load_texture(file_path):
+    texture_surface = pygame.image.load(file_path)
+    texture_data = pygame.image.tostring(texture_surface, "RGBA", True)
+    width, height = texture_surface.get_size()
+
+    texture_id = glGenTextures(1)
+    glBindTexture(GL_TEXTURE_2D, texture_id)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+    return texture_id
+
+def draw_tetrahedron_if_needed():
+    if draw_tetrahedron_flag:
+        glPushMatrix()
+        glRotatef(angle_x, 1, 0, 0)  
+        glRotatef(angle_y, 0, 1, 0)  
+        draw_tetrahedron()
+        glPopMatrix()
+
+def toggle_tetrahedron():
+    global draw_tetrahedron_flag
+    draw_tetrahedron_flag = not draw_tetrahedron_flag
+
+def change_tetrahedron():
+    global current_mode
+    root = tk.Tk()
+    root.withdraw() 
+    
+    options = ["POINTS", "WIRE", "SOLID"]
+    prompt_text = "Режим отрисовки тетраэдра:\n"
+    for i, option in enumerate(options):
+        prompt_text += f"{i + 1}. {option}\n"
+    
+    prompt_text += "Номер выбора:"
+    
+    shape_index = simpledialog.askinteger("Тип отрисовки", prompt_text, parent=root, minvalue=1, maxvalue=len(options))
+
+    if shape_index:
+        if 1 <= shape_index <= len(options):
+          current_mode = options[shape_index - 1]
+        else:
+          print("Быть такого не может")
+    root.destroy()
+
+def set_texture_to_tetrahedron():
+    global texture_on_tetrahedron_flag, tetrahedron_texture
+    texture_on_tetrahedron_flag = not texture_on_tetrahedron_flag
+    if (texture_on_tetrahedron_flag):
+        root = tk.Tk()
+        root.withdraw()
+
+        file_path = filedialog.askopenfilename( title="Выберите текстуру", filetypes=[("Image files", "*.png")])
+
+        if file_path:
+            tetrahedron_texture = load_texture(file_path)
+        root.destroy()
+
+def draw_shapes():
+    glColor3f(*object_color)
+    glLineWidth(line_width)
+    
+    glPushMatrix() 
+    glTranslatef(400, 300, 0)  
+    glScalef(scale, scale, 1.0)  
+    glTranslatef(-400, -300, 0) 
+
+    for shape in shapes:
+        if len(shape) == 2:
+            glBegin(GL_LINES)
+            for vertex in shape:
+                glVertex2f(vertex[0], vertex[1])
+            glEnd()
+        elif len(shape) == 3:
+            glBegin(GL_TRIANGLES)
+            for vertex in shape:
+                glVertex2f(vertex[0], vertex[1])
+            glEnd()
+        else:
+            glBegin(GL_POLYGON)
+            for vertex in shape:
+                glVertex2f(vertex[0], vertex[1])
+            glEnd()
+
+    glPopMatrix()
+
+def change_color():
+    global object_color
+    color = colorchooser.askcolor(title="Изменить цвет объектов")
+    if color[0] is not None:
+        object_color = (color[0][0] / 255, color[0][1] / 255, color[0][2] / 255)
+
+def change_background_color():
+    global background_color
+    color = colorchooser.askcolor(title="Изменить цвет фона")
+    if color[0] is not None:
+        background_color = (color[0][0] / 255, color[0][1] / 255, color[0][2] / 255)
+
+def change_line_width():
+    global line_width
+    width = simpledialog.askinteger("Толщина линии", "Введите толщину (1-10):", minvalue=1, maxvalue=10)
+    if width is not None:
+        line_width = width
+
+def draw_line():
+    global shapes
+    coords = simpledialog.askstring("Прямая линия", "Введите координаты (x1,y1,x2,y2):")
+    if coords:
+        x1, y1, x2, y2 = map(float, coords.split(','))
+        shapes.append([(x1, y1), (x2, y2)])
+
+def draw_rectangle():
+    global shapes
+    coords = simpledialog.askstring("Прямоугольник", "Введите координаты (x1,y1,x2,y2):")
+    if coords:
+        x1, y1, x2, y2 = map(float, coords.split(','))
+        shapes.append([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+
+def draw_triangle():
+    global shapes
+    coords = simpledialog.askstring("Треугольник", "Введите координаты (x1,y1,x2,y2,x3,y3):")
+    if coords:
+        x1, y1, x2, y2, x3, y3 = map(float, coords.split(','))
+        shapes.append([(x1, y1), (x2, y2), (x3, y3)])
+
+def draw_polygon():
+    global shapes
+    coords = simpledialog.askstring("Многоугольник", "Введите координаты (x1,y1;x2,y2;...):")
+    if coords.endswith(";"):
+        coords = coords[:-1]
+    if coords:
+        points = []
+        for coord in coords.split(';'):
+            x, y = map(float, coord.split(','))
+            points.append((x, y))
+        shapes.append(points.copy())
+
+def zoom_in():
+    global scale
+    multiplier = simpledialog.askstring("Увеличение масштаба", "Во сколько раз увеличить масштаб?")
+    scale *= float(multiplier)
+
+def zoom_out():
+    global scale
+    divider = simpledialog.askstring("Уменьшение масштаба", "Во сколько раз уменьшить масштаб?")
+    scale /= float(divider)
+
+def init_lighting():
+    glEnable(GL_LIGHTING)
+    glEnable(GL_LIGHT0)
+    glEnable(GL_DEPTH_TEST)
+    
+    ambient_light = [0.3, 0.3, 0.3, 1.0]  # Уровень окружающего света
+    diffuse_light = [1.0, 1.0, 1.0, 1.0]  # Рассеянный свет
+    position = [0.0, 0.0, 2.0, 1.0]        # Позиция источника света
+
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambient_light)
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse_light)
+    glLightfv(GL_LIGHT0, GL_POSITION, position)
+
+def set_tetrahedron_lighting():
+    global tetradedron_lighting
+    tetradedron_lighting = not tetradedron_lighting
+
+def show_info():
+    root = tk.Tk()
+    root.withdraw()
+    tk.messagebox.showinfo("Справочная информация", "- для вращения тетраэдра зажмите левую кнопку мыши\n- повторный щелчок по всем связанным с тетраэдром коммандам отменяет команду")
+
+def main():
+    global background_color, object_color, line_width, shapes, buttons, scale, is_rotating, angle_x, angle_y
+
+    root = tk.Tk()
+    root.withdraw()
+
+    pygame.init()
+    display = (1000, 800)
+    pygame.display.set_mode(display, DOUBLEBUF | OPENGL)
+    gluPerspective(45, (display[0] / display[1]), 0.1, 50.0)
+    glTranslatef(0.0, 0.0, -5)
+
+    init_lighting()
+
+    buttons = [
+        Button(10, 10, 250, 50, "Изменить цвет объектов", change_color),
+        Button(10, 70, 250, 50, "Изменить цвет фона", change_background_color),
+        Button(10, 130, 250, 50, "Изменить толщину линии", change_line_width),
+        Button(10, 190, 250, 50, "Нарисовать линию", draw_line),
+        Button(10, 250, 250, 50, "Нарисовать прямоугольник", draw_rectangle),
+        Button(10, 310, 250, 50, "Нарисовать треугольник", draw_triangle),
+        Button(10, 370, 250, 50, "Нарисовать многоугольник", draw_polygon),
+        Button(10, 430, 250, 50, "Увеличить масштаб", zoom_in),
+        Button(10, 490, 250, 50, "Уменьшить масштаб", zoom_out),
+        Button(10, 550, 250, 50, "Нарисовать тетраэдр", toggle_tetrahedron),
+        Button(10, 610, 250, 50, "Тип отрисовки тетраэдра", change_tetrahedron),
+        Button(10, 670, 250, 50, "Текстурировать тетраэдр", set_texture_to_tetrahedron),
+        Button(10, 730, 250, 50, "Осветить тетраэдр", set_tetrahedron_lighting),
+        Button(790, 10, 250, 50, "Справка", show_info)
+    ]
+
+    display_height = display[1]
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if event.type == MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    pos = pygame.mouse.get_pos()
+                    for button in buttons:
+                        if button.is_clicked(pos):
+                            button.action()
+                            break
+                if event.button == 3: 
+                    is_rotating = True
+                    last_mouse_pos = pygame.mouse.get_pos()
+            if event.type == pygame.KEYDOWN:
+                if event.unicode == "+" or event.unicode == "=":
+                    scale *= 1.1
+                elif event.unicode == "-" or event.unicode == "_":
+                    scale /= 1.1
+            if event.type == MOUSEBUTTONUP:
+                if event.button == 3:  
+                    is_rotating = False
+            if event.type == MOUSEMOTION:
+                if is_rotating:
+                    x, y = pygame.mouse.get_pos()
+                    dx = x - last_mouse_pos[0]
+                    dy = y - last_mouse_pos[1]
+                    angle_y += dx * 0.5  
+                    angle_x += dy * 0.5 
+                    last_mouse_pos = (x, y)
+
+        glClearColor(*background_color, 1)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+        if tetradedron_lighting:
+            glEnable(GL_LIGHTING)
+        else:
+            glDisable(GL_LIGHTING)
+            
+        glPushMatrix()
+        glRotatef(angle_x, 1, 0, 0)  
+        glRotatef(angle_y, 0, 1, 0)  
+
+        draw_tetrahedron_if_needed()
+        glPopMatrix()
+
+        glDisable(GL_LIGHTING)  
+        glPushMatrix()
+        glLoadIdentity()  
+        glOrtho(0, display[0], display[1], 0, -1, 1) 
+        glScale(1, -1, 1)  
+        glTranslatef(0, -display_height, 0)
+
+        draw_shapes()
+
+        for button in buttons:
+            button.draw(display_height)
+
+        glPopMatrix()
+
+        glEnable(GL_LIGHTING)
+
+        pygame.display.flip()
+        pygame.time.wait(10)
+
+        
+if __name__ == "__main__":
+    main()
